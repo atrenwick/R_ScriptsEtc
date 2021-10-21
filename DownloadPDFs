@@ -1,0 +1,113 @@
+thisYear <- format(Sys.Date(), "%Y")
+thisMonth <- format(Sys.Date(), "%m")
+thisDay <- as.numeric(format(Sys.Date(), "%d")) 
+if ((thisDay <10)){
+  thisDay <- paste(0,thisDay, sep = "")}
+YesterDate <- as.numeric(thisDay) -1
+if ((YesterDate <10)){
+  YesterDate <- paste(0,YesterDate, sep = "")}
+PreviousDay <- as.numeric(thisDay) -2
+if ((PreviousDay <10)){
+  PreviousDay <- paste(0,PreviousDay, sep = "")}
+## get year, month and day from current date, and ensure that MM and DD have 2 digits
+
+## Download PDFs to specified folders, with logical names, based on pattern of link
+## eg. of format A: AddYourTopLevelDomainHere/RandomCode/YYYYMMDD
+## eg of format B : AddYourTopLevelDomainHere/YYYYStringYYYYMMDDLogicalCode.pdf
+## eg of format C: AddYourTopLevelDomainHere/YYYY/MM/DD/String.pdf
+## eg of format D: AddYourTopLevelDomainHere/String1/YYYYMMDD/
+
+# this script will get PDFs from current day as well as previous day (simple subtraction from DD giving yesterday's date ; with only 12 months a year, errors can be dealt with manually by changing 00 to the number of days in the previous month and removing 1 from the month counter, or, alternatively, not doing anything as the following day (2nd of month), the script will download the file for the previous day = first of the month.)
+#  existing files  with same name will be overwritten, eliminating creation of multiple copies of a given PDF
+
+#Get PDFs based on format A, with multiple versions of a single online newspaper, for example
+## Framework for automating downloads where link is of form topleveldomain/pdf/Code/YYYYMMDD and saving these PDFs 
+## to specified folder. In this case, Code is a random string of chars to denote a specific local version of a newspaper,
+## and Name will be used to give a human-intelligible name to the output file
+
+
+FromRandomOutput <- data.frame()
+RandomCodes<- as.list(c("abc", "1gs", "ajx", "ays","5jb", "s5m","be4","m7y", "xgn"))
+## these are examples of codes that might appear inthe URL of a given version of a publication
+LogicalCodes <- as.list(c("FRA", "GER", "GBR", "NZL", "ITA", "EST", "AUS", "AUT", "IRE"))
+## these are examples of codes that you might want to save in the name of the output
+for (i in 1:length(RandomCodes)){
+  currentLink <- paste("AddYourTopLevelDomainHere", RandomCodes[i], "/", thisYear, thisMonth, thisDay, sep="")
+  # Create links to PDFs ;  may need to add /x after tld, depending on site, structure
+  currentName <- paste("/Users/me/Downloads/Newspaper", RandomCodes[i], "-", thisYear, "-", thisMonth, "-",thisDay, ".pdf", sep="")
+  # create name for file and specify path
+  currentFile <- data.frame(Link = currentLink, Name = currentName)
+  # create df with name + link
+  FromRandomOutput <-  rbind(FromRandomOutput, currentFile)
+  currentLink <- paste("AddYourTopLevelDomainHere", RandomCodes[i], "/", thisYear, thisMonth, YesterDate, sep="")
+  currentName <- paste("/Users/me/Downloads/Newspaper", RandomCodes[i], "-", thisYear, "-", thisMonth, "-",YesterDate, ".pdf", sep="")
+  currentFile <- data.frame(Link = currentLink, Name = currentName)
+  FromRandomOutput <-  rbind(FromRandomOutput, currentFile)
+}
+rm(RandomCodes, LogicalCodes, currentFile)
+# remove variables no longer needed
+
+#Get PDFs based on format B, with multiple versions of a single online newspaper, for example
+## Framework for automatically downloading links of form topleveldomain/YYYY/sometext/LogicalCode
+LogicalCodes <- as.list(c("_FRA.pdf", "_GER.pdf", "_GBR.pdf", "_NZL.pdf", "_ITA.pdf", "_EST.pdf", "_AUS.pdf", "_AUT.pdf", "_IRE.pdf", "_ESP.pdf", "_POR.pdf", "_NED.pdf"))
+## these are examples of codes that you might want to save in the name of the output
+
+YMDToday  <-  paste(thisYear, thisMonth, thisDay, sep="")
+YMDYesterday  <-  paste(thisYear, thisMonth, YesterDate, sep="")
+FromLogicaloutput <- data.frame()
+for (i in 1:length(LogicalCodes)){
+  currentLink <- paste("AddYourTopLevelDomainHere" ,thisYear ,"/YourStringHere/" ,YMDToday ,LogicalCodes[i], sep="")
+  # Create link for today by concatenation ; you may need to add /x  depending on site in either tld or replacing yourstringHere, ± //es
+  thisLogicalCode <- substr(LogicalCodes[i], 2,4)
+# as LogicalCode contains both a 3 letter code (in the examples, country codes) we can extract these and use them at a different point in the name
+  currentName <- paste("/Users/me/Downloads/LogicalNewspaper", thisLogicalCode, "-", thisYear, "-", thisMonth, "-",thisDay, ".pdf", sep="")
+  # set current name
+  currentFile <- data.frame(Link = currentLink, Name = currentName)
+  FromLogicaloutput <- rbind(FromLogicaloutput, currentFile)
+  # create df with data for day in question, then add to already processed data for other days
+  currentLink <- paste("AddYourTopLevelDomainHere" ,thisYear ,"/YourStringHere/" ,YMDYesterday ,LogicalCodes[i], sep="")
+  # may need to add /x depending on site in either tld or replacing yourstringHere, ± //es
+  thisLogicalCode <- substr(LogicalCodes[i], 2,4)
+  currentName <- paste("/Users/me/Downloads/LogicalNewspaper", thisLogicalCode, "-", thisYear, "-", thisMonth, "-",YesterDate, ".pdf", sep="")
+  currentFile <- data.frame(Link = currentLink, Name = currentName)
+  FromLogicaloutput <- rbind(FromLogicaloutput, currentFile)
+}
+rm(currentFile, currentLink, LogicalCodes, thisLogicalCode, YMDToday,YMDYesterday )
+## remove unneeded variables
+# get PDFs on format C, with 1 version per day with .pdf appearing at foot of link
+
+YMDslashExpressionToday  <- paste( thisYear , "/" , thisMonth , "/" , thisDay , "/" ,  thisYear, thisMonth, thisDay, sep="")
+YMDslashExpressionYesterday  <- paste( thisYear , "/" , thisMonth , "/" , YesterDate , "/" ,  thisYear, thisMonth, YesterDate, sep="")
+## create names from concatenation of YYYY, MM, DD with appropriately places /
+FullLinkToday <-  paste("AddYourTopLevelDomainHere",  YMDslashExpressionToday,  "_String.pdf", sep="")
+FullLinkYesterday <-  paste("AddYourTopLevelDomainHere",  YMDslashExpressionYesterday,  "_String.pdf", sep="")
+## concatenate YMDslashExpressions with top level domains and strings
+FullOutputToday <- data.frame(Link = FullLinkToday, Name = paste("/Users/me/Downloads/", thisYear, "-", thisMonth,  "-", thisDay, ".pdf", sep=""))
+FullOutputYesterday <- data.frame(Link = FullLinkYesterday, Name = paste("/Users/me/Downloads/", thisYear, "-", thisMonth,  "-", YesterDate, ".pdf", sep=""))
+# send output to a dataframe
+rm(YMDslashExpressionToday, YMDslashExpressionYesterday, FullLinkToday, FullLinkYesterday)
+## remove unneeded variables
+## get PDFs based on format D, with 1 version per day
+
+
+D_LinkT  <- paste( "AddYourTopLevelDomainHere/", "String1/", thisYear, thisMonth, thisDay, sep="")
+# concatenate link from top level domain, string and YMD with appropriately placed /
+D_NameT <- paste("/Users/me/Downloads/D-", thisYear, "-", thisMonth, "-",thisDay, ".pdf", sep="")
+# concatenate filename from top level domain, string and YMD and specification of path and format
+D_OutT <- data.frame(Link = D_LinkT, Name = D_NameT)
+# send output to df
+D_LinkY  <-paste( "AddYourTopLevelDomainHere/", "String1/", thisYear, thisMonth, YesterDate, sep="")
+D_NameY <- paste("/Users/me/Downloads/D-", thisYear, "-", thisMonth, "-",YesterDate, ".pdf", sep="")
+D_OutY <- data.frame(Link = D_LinkY, Name = D_NameY)
+D_Out <- rbind(D_OutT, D_OutY)
+## combine dfs for yesterday and today
+rm(D_LinkY, D_LinkT, D_OutY, D_OutT, D_NameT, D_NameY)
+# remove unneeded variables
+
+ALL_OUTPUT <- rbind(D_Out, FullLinkToday, FullOutputYesterday, FromLogicaloutput, FromRandomOutput)
+# create one large dataframe from output of A, B, C and D
+for (i in 1:dim(ALL_OUTPUT)[1]){
+## for each row of df = for each pair of link + path to save to
+try(download.file(ALL_OUTPUT$Link[i], ALL_OUTPUT$Name[i]))
+# try to download ; try command is necessary as not all links will be live as not every newspaper will be published everyday (public holidays, weekends, industrial action, delays in uploading files, this script running at different times of day, possible before the file is uploaded for the day in question)
+}
