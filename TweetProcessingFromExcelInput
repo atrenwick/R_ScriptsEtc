@@ -1,0 +1,59 @@
+library(beepr) ; library(readxl) ; library(dplyr) ; library(tm) ; library(textclean)
+## import libraries
+
+thisPath <- "/Users/me/Downloads/Tweets/input/"
+ArchivePath <- "/Users/me/Downloads/Tweets/output/"
+## set paths for input and output folders
+
+col_orderInit <- c("data.text", "data.lang", "data.id", "Source", "Search")
+col_orderFinal <- c("ProcTXT", "data.lang", "data.id", "Source", "Search")
+# define column orders
+
+YMString <- format(Sys.Date(), "%Y-%m-") 
+# get Year-Month string from current date
+RealDay <- as.integer(format(Sys.Date(), "%d")) -2
+if ((RealDay <10)){
+  RealDay <- paste(0,RealDay, sep = "")}
+Yesterday <- as.integer(format(Sys.Date(), "%d")) -1
+if ((Yesterday <10)){
+  Yesterday <- paste(0,Yesterday, sep = "")}
+## get Date for Yesterday and day before ; data being processed is from yesterday, and if needs be, can be added to end of data from day before
+# ensure that days are 2 digits
+
+DayChecker <- format(Sys.Date(), "%d")
+TodayYMString <- format(Sys.Date(), "%Y-%m-")
+YesterDate <- paste(TodayYMString, RealDay, sep = "")
+TodayYMDString <- format(Sys.Date(), "%Y-%m-%d") #-- was theDate
+YesterdayYMDString <- paste(TodayYMString, Yesterday, sep="")
+# get year-month string from yesterday and day before;
+
+theseFiles <- list.files(path=thisPath, pattern="*TweetStreamA.xlsx", full.names=TRUE, recursive=FALSE)
+# get list of all files that respond to pattern ; this can thus be used if multiple days need to be processed as dates appear before Stream name in filenames
+Stage10 <- ""
+# create an empty variable where data can be stored once processed
+
+for (i in 1:length(theseFiles)){
+  Stage1.df <- read_excel(theseFiles[i], sheet = "Archive")
+  Stage3.df <- Stage1.df[-c(2,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18)] ## numbers for standard import from tags
+  # Stage3.df$data.lang <- "FR" # specify that search was limited to French tweets
+  # Stage3.df$Search <- "SearchA" # search term gets specified here
+  # Stage3.df$Source <- "Stream" # source of tweets
+  names(Stage3.df)[1] <- "data.id" # set name of column 1
+  names(Stage3.df)[2] <- "data.text" # set name of column 2
+  # Stage4.df <- Stage3.df[, col_orderInit] # set column order
+  # Stage5.df <- distinct(Stage4.df, .keep_all="FALSE") ## gets rid of some duplicates
+  Stage6.df <- Stage3.df[!duplicated(Stage3.df$data.id), ] # ensure no duplicates in data.id column
+  Stage7.df <- Stage6.df[!duplicated(Stage6.df$data.text), ] # ensure no duplicates in data.text column
+  Stage7.df$ProcTXT <- Stage7.df$data.text # send content of data.text column to ProcTXT column for non-destructive editing
+  Stage7.df$ProcTXT <- gsub("(f|ht)t(ps|p):.*(\\s|$)", "", Stage7.df$ProcTXT, ignore.case = TRUE) # remove URLS from tweets
+  Stage7.df$ProcTXT <- gsub("@[a-z,0-9,:punct:,_]*?\\s", "", Stage7.df$ProcTXT, ignore.case = TRUE) # remove twitter handles
+  Stage7.df$ProcTXT <- add_comma_space(Stage7.df$ProcTXT) # add spaces after commas
+  Stage7.df$ProcTXT <- replace_non_ascii(Stage7.df$ProcTXT) # remove non-ascii characters
+  Stage7.df$ProcTXT <- replace_hash(Stage7.df$ProcTXT) # replace hashes
+  Stage7.df$ProcTXT <- replace_html(Stage7.df$ProcTXT) # replace html identities
+  Stage7.df$ProcTXT <- replace_white(Stage7.df$ProcTXT) # remove whitespace
+  beepr::beep() # use the beep package to make a noise when done
+  Stage9.df <- Stage7.df[-c(2)] # remove column 2, which contained orignal, unprocessed text
+  Stage10 <- rbind(Stage9.df, Stage10) # send processed tweets to new df
+}
+beep(2) # make different noise to indicate processing completed
