@@ -1,0 +1,215 @@
+## load libraries used in dev of script
+library(rjson) ; library(jsonlite) ; library(tibble) ; library(beepr); library(tm) ; library(textclean) ; library(dplyr) ; library(stringr) ; library(rvest) ; library(tidyr); library(tidyverse); library(tidytext) ; library(purrr) ; library(tidyr) ; library(lubridate) ; library(tictoc) ; library(xml2)
+
+##100 Define folder source and dataframe
+## to iterate over a folder of HTML from a specific website, organised with 1 folder containing the HTML files for a given day, in the month of 2021/10
+for (q in 1:31) {
+  if (q <10 ){ q <- paste("0", q, sep="")}
+# add leading 0 if q is less than 10
+liveFolder <- paste("/Users/me/Document/_test2/2021-10-", q , "-HTML", sep="")
+# set current folder to process
+files <- list.files(path =  liveFolder, pattern = ".htm", full.names = T, recursive = T)
+#list files in folder
+
+FileSummaries <- data.frame()
+# create empty df to store summary information
+errorCounter <- 0
+# set error counter to 0
+
+for (i in length(files):1){
+# for each file in the folder…
+html_document <-  read_html(files[i])
+# read file from disk as html
+
+    title_text <- html_document %>% 
+      html_elements("title") %>% 
+      html_text(trim=T) #%>% 
+    title_text <-   title_text[1]
+# after identifying the tag used for the title, this can be extracted, trimmed. As occurs in pair, use final line to get title, which always appears first in pair
+
+    if (title_text == "Page introuvable") {
+      errorCounter <- 1
+      next }
+## if the page's title is a 404 error giving the speccified title, add 1 to counter and go to file[i +1
+
+    pageLink <- html_document %>%
+      html_elements(xpath = "//link[contains(@rel, 'canonical')]") 
+# extract link of page currently being processed    
+
+## 130 get Savetitle finder-safe
+    SaveTitle <-  gsub("/", "-", title_text)
+    SaveTitle <-  gsub(":", "-", SaveTitle)
+    SaveTitle <-  gsub(";", "-", SaveTitle)
+    SaveTitle <-  gsub("\\\\", "-", SaveTitle)
+    SaveFull <- gsub(liveFolder, "", files[i] )
+    SaveFolder <- gsub("-HTML", "-TXT", liveFolder )
+# replace elements in text of name to give a Finder-safe title (removing /:\;) and add TXT, as this will be used as name for FOLDER where output .txt file will be saved
+
+
+    ifelse(!dir.exists(file.path(SaveFolder)),   dir.create(file.path(SaveFolder)),   FALSE  )
+## if a folder for txt files for the MONTH  in question doesn't already exist, make one
+    
+    SaveFull <- paste(SaveFolder, "/", SaveFull, sep="")
+    SaveFull <- gsub(".htm", ".txt", SaveFull )
+# define full path to save output .txt file with .txt extension
+
+    ChallengeLink <- xml_attrs(pageLink[[1]]) [["href"]]
+    ChallengeLink <- gsub("<insertURL to top level domain here>", "", ChallengeLink)
+    ChallengeLink <- gsub("/.*", "", ChallengeLink)
+    StoryStatus <- ChallengeLink
+## block to remove TLD from the URL, and then remove name of article, to leave type of article only
+
+    xml_remove(xml_find_all(html_document, xpath = "//div[@class='<<IdentifiedAdditionalArticleBalisage1>Article>']"))
+    xml_remove(xml_find_all(html_document, xpath ="//div[@class='<<IdentifiedAdditionalArticleBalisage2>Container>']"))
+    xml_remove(xml_find_all(html_document, xpath ="//div[contains(@class, '<<IdentifiedAdditionalArticleBalisage3>Recommendatons>')]"))
+
+## remove specific content (here, based on class with specific attributes, which act id articles, containers and recommendations of other articles
+
+    ## 160 isolate body and -> HTML
+    Body <- html_document %>%
+      html_elements(xpath = "//div[contains(@data-component, '<<MainBodyTag>>')]")  #%>% 
+# ID main body tag from HTML and extract this
+
+    ## 170 check non-emptiness of created variables
+    if (is_empty(title_text) == T) {title_text <- "@@absent"} else {title_text <- title_text}
+    if (is_empty(Body) == T) {Body <- "@@absent"} else {Body <- Body}
+## add specified content to variables if either is empty    
+
+    Body <- gsub("<style>.+?</style>", "", Body)
+    # remove specific quoted regex from body
+    Credits <- (xml_find_all(html_document, xpath ="//div[@class='<<CreditsSectionTag>>']")
+  # extract info relating to credited works/authors
+  Body <- gsub("<span class=\"<<CreditsSectionTag>>\">.+?</span>", "", Body)
+# remove credits from body, as in separate variable now
+Body <- stripWhitespace(Body)
+    # remove redundant whitespace
+
+FileSummary <- data.frame(
+      SaveTitle <- SaveTitle,
+      File = files[i],
+      Title = title_text,
+      Body = as.character(Body),
+      StoryStatus = StoryStatus,
+      Credits = Credits,
+      SaveFull = SaveFull)
+# create df of data extracted from HTML
+  
+    FileSummaries <- rbind(FileSummary, FileSummaries)
+# add just generated data to existing data from previous iterations of loop
+
+  #### POST-LOOP PROCESSING FOR POLLS, REVIEWS, LIVES, STORIES
+  
+  ArticlesToIgnore <- FileSummaries[which(FileSummaries$ArticlesToIgnore == "<<ArticleType1>>"),]
+# specify articles to ignore based on type of article
+FilesCurrent <- anti_join(FileSummaries, ArticlesToIgnore, by = "File")
+# remove the articles to be ignored from the data for
+  
+  NewPassNeededA <- FilesCurrent[which(FilesCurrent$Body =="@@absent"),]
+  NewPassNeededB <- FilesCurrent[which(FilesCurrent$Body ==""),]
+  zzStillToDo <- rbind(NewPassNeededA, NewPassNeededB)
+# create df of articles that have either absent body tagged in earlier step, or where body field is actually blank
+rm(NewPassNeededA, NewPassNeededB)
+  TodayDone <- anti_join(FilesCurrent, zzStillToDo, by = "File")
+  # remove data of articles with errors from data processed correctly
+  ## PART 0 : LOGICAL TESTS
+  for (i in 1:dim(zzStillToDo)[1]){
+    html_document <- read_html(zzStillToDo$File[i])
+    
+    LiveCheck <- xml_find_all(html_document, xpath= "//article[contains(@class, '<<LiveEventMessagesTag>>')]")
+    if (is_empty(LiveCheck) == T) {LiveCheck <- ""} else {LiveCheck <- TRUE}
+    
+    PollCheck <- xml_find_all(html_document, xpath = "//div[contains(@class, '<<PollTag>>')]")
+    if (is_empty(PollCheck) == T) {PollCheck <- ""} else {PollCheck <- TRUE}
+    
+    zzStillToDo$LiveCheck[i] <- LiveCheck
+    zzStillToDo$PollCheck[i] <- PollCheck
+## test to see if data with errors/blanks contains tags used for live-coverage messages of events or polls, questionnaires
+
+    zzArticlesWithPollsToProcess <- zzStillToDo[which(zzStillToDo$PollCheck == TRUE),]
+    zzLivesToProcess <- zzStillToDo[which(zzStillToDo$LiveCheck ==TRUE ), ]
+    zzHotelReviews <- zzStillToDo[which(zzStillToDo$LiveCheck !=TRUE & zzStillToDo$LiveCheck!=TRUE  ), ]
+# create separate dfs  for pages depending on tags they contain - for live-coverage messages or polls/questionnaires
+  }
+  
+
+  ## PART 1: PROCESS POLLS
+  if (((dim(zzArticlesWithPollsToProcess)[1])) > 0){
+    for (k in 1:dim(zzArticlesWithPollsToProcess)[1]){
+      
+      ## 300 define xpaths for poll data retrieval
+      xpath0 <- "//div[contains(@class, 'fig-poll__results')]/div[@data-id='<<Result0Value>>']"
+      xpath1 <- "//div[contains(@class, 'fig-poll__results')]/div[@data-id='<<Result1Value>>']"
+# set xpath for extraction of poll/questionnaire results; <<Result0Value>> needs to be identified in HTML, as well as number of results, which won't necessarily be 2. 
+
+      ## 310 extract data from poll. 
+      html_document <-  read_html(zzArticlesWithPollsToProcess$File[k])
+      # load specific HTML file 
+      Result0 <- html_document %>% 
+        html_elements(xpath = xpath0)
+      Result0Text <- html_text(Result0)
+      Result0Text <- gsub("\n ", "", Result0Text)
+      Result0Text <- gsub(" ", "", Result0Text)
+      Result0PerCent <- xml_attrs(Result0[[1]])[["data-percentage"]]
+      # extract result for result0; if numerical, last line can calculate percentage based on the value returned and the location of Result0[[1]], which represents the sum of responses, which will likely be somewhere nearby in the DOM; obviously this wlll give an error if answer is str.
+     
+     Result1 <- html_document %>% 
+        html_elements(xpath = xpath1) 
+      Result1Text <- html_text(Result1)
+      Result1Text <- gsub("\n ", "", Result1Text)
+      Result1Text <- gsub(" ", "", Result1Text)
+      Result1PerCent <- xml_attrs(Result1[[1]])[["data-percentage"]]
+      # repetition of operations as for result0
+      
+      zzArticlesWithPollsToProcess$Body[k] <- as.character(paste(Result0Text, " ", Result0PerCent, "\n", Result1Text, " ", Result1PerCent, sep="")) 
+# converts a concatenated string to char (just in case contains int), and sets the article's Body to this string
+}
+    
+    zzArticlesWithPollsToProcess <- zzArticlesWithPollsToProcess[-c(7,8)]
+    TodayDone <- rbind(FigaroTodayDone, zzArticlesWithPollsToProcess)
+    zzStillToDo <- anti_join(zzStillToDo, zzArticlesWithPollsToProcess, by = "Title")
+    rm(zzArticlesWithPollsToProcess, Result0, Result1, Result1PerCent, Result1Text, Result0PerCent, Result0Text, PollCheck, k)
+# for now redundant columns, bind the output to correct output from earlier, and remove just-processed article from list of articles to process, then clear unneeded variables
+  }
+  
+  ### PART 2: PROCESS LIVES    
+  
+  if (((dim(zzLivesToProcess)[1])) > 0){
+# while there rest a non-0 number of articles with livemessages to process    
+    zzStillToDo <- anti_join(zzStillToDo, zzLivesToProcess, by = "File")
+    # create df of live-message-containing articles from the list of articles to process
+    for (z in 1:dim(zzLivesToProcess)[1]){
+      html_document <- read_html(zzLivesToProcess$File[z])
+      ## 240 remove timestamps from messages, figures
+      xml_remove(xml_find_all(html_document, xpath = "<<XPATH_FOR_TIME_MESSAGE_POSTED>>"))
+      xml_remove(xml_find_all(html_document, xpath = "//figure"))
+  ## load text and remove timestamps if not relevant
+## 250 get text of messages, collapse as TXT
+      Messages <- html_document %>%
+        html_elements(xpath = "//article[contains(@class, '<<LiveEventMessagesTag>>')]") %>% 
+        html_text(trim=T) %>% 
+        paste(collapse = "\n", sep = "\n")
+      zzLivesToProcess$Body[z] <- Messages
+    # get text of messages based on tag used, trim spaces, and collapse all and sent to the Body of the current article
+  }
+    zzLivesToProcess <- zzLivesToProcess[-c(7,8)]
+    TodayDone <- rbind(TodayDone, zzLivesToProcess)
+    rm(zzLivesToProcess, Messages)
+    # for now redundant columns, bind the output to correct output from earlier, and remove just-processed article from list of articles to process, then clear unneeded variables
+
+  }
+
+  
+  ################################################################################################################
+  ###########################              END OF PROCESSING           ###########################################
+  ################################################################################################################
+  cat(i, ":", "Articles: ", dim(FileSummaries)[1], "Processed: ", dim(FilesCurrent)[1], "; ArticlesToIgnore:", dim(ArticlesToIgnore)[1] ," missing", dim(zzStillToDo)[1], " errors", (length(files) - dim(FileSummaries)[1] ), " = ", errorCounter ,"\n")
+# print message of how many files in folder, how many files inputted into this script, how many processed, how many ignored, number of articles remaining to be processed after polls and live events processed and removed, number of errors based on articles to ignore, and number of errors actually observed. Hopefully these are the same. If not, there's some articles that have fallen through the cracks
+################################################################################################################
+  ############################             EXPORT TO FILES            ############################################
+  ################################################################################################################
+  for (a in 1:dim(TodayDone)[1]){
+    PrintArticle <- paste(TodayDone$Title[a], "\n", TodayDone$Body[a])
+    writeChar(PrintArticle, TodayDone$SaveFull[a])
+# for each day, print each article as a separate text file in  a folder for that specific day. This way we get all the articles for 0ctober 1 in a folder, all the articles for October 2 in another folder. This lets us keep track of this date info even though the files themselves now have no metadata
+}
+} ## close q
