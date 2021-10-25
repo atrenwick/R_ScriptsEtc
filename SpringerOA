@@ -1,0 +1,419 @@
+## Springer OA Journals: A way to build specialised corpora. It has 2 fundamendal parts: 1. getting metadata, and 2. extracting relevant links from the metadata and downloading these links.
+# recommendation is to do all of part 1 then run part 2.
+
+## Load libraries needed
+library(httr) ; library(jsonlite) ; library(xml2) ;library(tibble) ; library(tidyr) ; library(tidyverse) ; library(flatxml) ; library(tm) ; library(tidytext) ; library(beepr)
+
+apiKey <- "&api_key=" # you'll need to add your API key here, after the = sign, but in the quotation marks
+Endpoint <- "https://api.springernature.com/openaccess/jats?q="
+storage <- data.frame()
+# theseArticles <- data.frame()
+# StoreProcessed <- data.frame()
+errorResultsAll<- data.frame()
+theseFiles <- as.character()
+ArticlesProcessed <- data.frame()
+
+
+## load 'search query'  # rather than load a query with a word, we'll search by ISSN ; these can be found on journal webpages
+ISSN <- "2190-3948" ## add ISSN here
+perPage <- 20 ## max is 10, otherwise defaults to 10
+StartVolume <- "1" # specify volume to start at
+FinishVolume <- "11" # specify volume to end at
+```
+
+## this part will download XML files of metadata
+
+for (h in StartVolume:FinishVolume){
+  Volume <- paste("volume:", h, sep="")
+  IwantToStartAt <- 1 # this assumes that you want to start at volume 1 ; if else, this needs to be changed mannually
+  Start <- paste("&s=", IwantToStartAt, sep="") 
+  myXMLSaveFolder <- paste("/Users/me/Desktop/TargetDocuments/", substr(ISSN, 1,9), "-", substr(Volume, 8,9), "-XML/", sep="") ## this sets name for folder to create from the ISSN (8 digits + separator = 9 digits) and path specified, and then adds the volume number (2 digits) to give a foldername in which to save all the subsequent files from this volume
+  ifelse(!dir.exists(file.path(myXMLSaveFolder)),   dir.create(file.path(myXMLSaveFolder)),   FALSE  ) # create the folder named above if it doesn't exist
+  
+  Request1 <- paste(Endpoint, ISSN, "%20", Volume, Start,"&p=20", perPage,  apiKey, sep = "") # define request based on parameters specified
+  currentTarget <- read_xml(Request1) 
+  TotalArticles <- xml_text(xml_child(xml_child(currentTarget, 4),1)) # gets total number of articles returned in header info
+  Remaining <- as.integer( TotalArticles) - (as.integer( xml_text(xml_child(xml_child(currentTarget, 4),4),1))) # get number of articles remaining by subtracting # of articles downlaoded from number to get
+  MoreIterationsNeeded <- ceiling( Remaining /perPage) # rounds up number of iterations still needed 
+  writeChar(as.character(currentTarget), paste(myXMLSaveFolder, "/01-", perPage, ".xml", sep="")) # save results as XML for volume 1
+  cat("Vol ", h, "File ", "1", "of", (MoreIterationsNeeded +1 ),  "Articles:", IwantToStartAt, "-", (IwantToStartAt + (perPage-1)), "of ", TotalArticles, "\n")
+ ## above line displays info on progress, etc
+  
+  ## get total number of articles, calculate number of iterations, get all xml docs
+  # if (MoreIterationsNeeded ==0) {
+  #   activate these lines manually if fewer than 20 articles per issue
+  #   return}
+  
+  # for subsequent iterations, the following basic pattern is followed: calculate where to start, send request, save XML, display progress
+  if (MoreIterationsNeeded >= 1){
+  ## do the following if more than one iteration is needed  : 
+    for (i in 1:MoreIterationsNeeded){
+      IwantToStartAt <-  IwantToStartAt +perPage
+      currentRequest <- paste(Endpoint, ISSN, "%20", Volume, "&s=", IwantToStartAt,"&p=", perPage, apiKey, sep = "")
+      currentTarget <- read_xml(currentRequest) 
+      writeChar(as.character(currentTarget), paste(myXMLSaveFolder, IwantToStartAt, "-", (IwantToStartAt + (perPage-1)), ".xml", sep=""))
+      cat("Vol ", h, "File ", (i+1), "of", (MoreIterationsNeeded +1 ),  "Articles:", IwantToStartAt, "-", (IwantToStartAt + (perPage-1)), "\n")
+    }# close i loop
+  } # close if
+  if (MoreIterationsNeeded == i){
+    myFiles <- list.files(path = myXMLSaveFolder, pattern = ".xml", full.names = T, recursive = F)
+    theseFiles <-  c(theseFiles, myFiles)
+    return 
+  }
+  else { ## close and open if conditionals
+    myFiles <- list.files(path = myXMLSaveFolder, pattern = ".xml", full.names = T, recursive = F)
+    theseFiles <-  c(theseFiles, myFiles)
+    return  }
+}# close h 
+
+
+
+## end of loop of getting metadata. Tidying up.
+rm(apiKey, Endpoint, IwantToStartAt, perPage, currentRequest, Remaining, Request1, Start)
+
+# Second part begins here. We have local copies of the XML files of metadata so we can quickly process these to get the relevant links, etc for the full-text we want
+# these are based on the fields returned by the springer API in mid-2021, and aim to get article title, DOI, YMD of publication, article number, eissn, article body, keywords
+## 100. extracting info from XML files
+# 101. Define xpaths + storage variables…
+xPathTitle <- "/front/article-meta/title-group/article-title"
+xPathDOI <- "/front/article-meta/article-id[contains(@pub-id-type, 'doi')]"
+xPathPublishedYYYY <- "/front/article-meta/pub-date[contains(@date-type, 'pub')][contains(@publication-format, 'electronic')]/year"
+xPathPublishedMM <- "/front/article-meta/pub-date[contains(@date-type, 'pub')][contains(@publication-format, 'electronic')]/month"
+xPathPublishedDD <- "/front/article-meta/pub-date[contains(@date-type, 'pub')][contains(@publication-format, 'electronic')]/day"
+xPathArticleNumber <- "/front/article-meta/elocation-id"
+# xPathArticleVolume <- "/front/article-meta/volume" ## do not activate, as comes from search
+# xPathArticleISSN <- "/front/journal-meta/volume"  ## do not activate, as comes from search
+xPathArticleISSN2 <- "/front/journal-meta/issn[contains(@pub-type, 'epub')]"
+xPathArticleBody <- "/body"  
+xPathArticleKeywords <- "/front/article-meta/kwd-group/kwd"
+myMetadataCollection <- data.frame()
+errorResultsAll <- data.frame()
+
+{       ## open whole section looper
+  # 102. ## loop for volumes
+  for (t in StartVolume:FinishVolume){
+    thisVolume <- t # get one volume at a time
+    if (thisVolume < 10) {thisVolume <- paste("", thisVolume, sep="")} # add leading 0 if less than 10
+    
+    filesCurrentVolume <- list.files(path = (paste("/Users/me/Desktop/TargetDocuments/", ISSN, "-", thisVolume, "-XML/" ,"/", sep="")), pattern = ".xml", full.names = T) # point to folder created in part 1, and files created according to pattern in part 1.
+    
+    ## 103. loop for Volumes>Files # for each file
+    for (f in 1:length(filesCurrentVolume)){  
+      currentFile <-  read_xml(filesCurrentVolume[f]) # get the file 2 times, one to be modified, one to allow for easier comparison/export in chosen format for troubleshooting
+      currentFileXML <-  read_xml(filesCurrentVolume[f])
+      
+      ## removals block from XML for xml version ## parts to remove from body, as these aren't relevant to corpus requirements, add noise
+      xml_remove(xml_find_all(currentFileXML, xpath = "//sup"))
+      xml_remove(xml_find_all(currentFileXML, xpath = "//xref"))
+      xml_remove(xml_find_all(currentFileXML, xpath = "//fig"))
+      xml_remove(xml_find_all(currentFileXML, xpath = "//table|//table-wrap"))
+      xml_remove(xml_find_all(currentFileXML, xpath = "//disp-formula"))
+      xml_remove(xml_find_all(currentFileXML, xpath = "//label"))
+      xml_remove(xml_find_all(currentFileXML, xpath = "//caption"))
+      xml_remove(xml_find_all(currentFileXML, xpath = "//book-part"))
+      xml_remove(xml_find_all(currentFileXML, xpath = "//book-part-wrapper"))
+
+      ## removals block from XML for non-xml version ## parts to remove from body, as these aren't relevant to corpus requirements, add noise      
+      ## remove non-articles from XML for text version:
+      xml_remove(xml_find_all(currentFile, xpath = "//book-part"))
+      xml_remove(xml_find_all(currentFile, xpath = "//book-part-wrapper"))
+      
+      ## for dev phase, need to replace searchVolume with incremental variable
+      # searchVolume <- 10
+      ## need to insert determner of pageLimit here based on count of articles
+      
+      ## 104. Volumes>Files>Articles  # process one article at a time within each file
+      for (a in 1:(length(xml_find_all(currentFile, xpath = "//article")))){
+        ## define xpath for current article
+        xPathArticle <- paste("/response/records/article[", a,  "]", sep="") # get current article xpath
+        currentArticle <- xml_find_all(currentFile, xpath = xPathArticle) # get current article
+        
+        Body <- as.character(xml_find_all(currentFile, xpath = paste(xPathArticle, xPathArticleBody, sep=""))) # send current article to body
+        if (is_empty(Body) == T) { Body <- "NoBodyText@" } else {  Body <- Body  } # if above fails, set body to default value
+        
+        if (Body != "NoBodyText@" ) { #open if
+          # verify md fields not empty; if empty, add dummy data ; if int, = 99/9999 ; if text =no + field +@
+          Keywords <-  as.character(xml_find_all(currentFile, xpath = paste(xPathArticle,xPathArticleKeywords, sep="")))
+          if (is_empty(Keywords) == T) { Keywords <- "NoKeywords@" } else {    
+            Keywords <- Keywords %>% 
+              paste0(collapse = "\n")  }
+          # get published date information into specific fields
+          YYYY = as.integer(xml_text(xml_find_all(currentFile, xpath = paste(xPathArticle, xPathPublishedYYYY, sep=""))))
+          if (is_empty(YYYY) == T) { YYYY <- "9999" } else {  YYYY <- YYYY  }
+          MM = as.integer(xml_text(xml_find_all(currentFile, xpath = paste(xPathArticle, xPathPublishedMM, sep=""))))
+          if (is_empty(MM) == T) { MM <- "99" } else {  MM <- MM  }
+          DD = as.integer(xml_text(xml_find_all(currentFile, xpath = paste(xPathArticle, xPathPublishedDD, sep=""))))
+          if (is_empty(DD) == T) { DD <- "99" } else {  DD <- DD  }
+          
+          # build dataframe row based on  based on article+ xpaths 
+          myMetadata <- data.frame(
+            Title = xml_text(xml_find_all(currentFile, xpath = paste(xPathArticle, xPathTitle, sep=""))),
+            DOI = xml_text(xml_find_all(currentFile, xpath = paste(xPathArticle, xPathDOI, sep=""))),
+            YYYY = YYYY,
+            MM = MM,
+            DD =  DD,
+            #  currentArticleNumber = currentArticleNumber,
+            Volume = thisVolume, ### this needs to be changed to incremental variable
+            ISSN = (ISSN), ## this is correct, as it comes from search, not xpath
+            ISSN2 = (xml_text(xml_find_all(currentFile, xpath = paste(xPathArticle, xPathArticleISSN2, sep="")))),
+            Keywords = Keywords,
+            BodyRaw = Body,
+            BodyClean = as.character(xml_find_all(currentFileXML, xpath = paste("/response/records/article[", a,  "]/body", sep="")))
+          )
+          myMetadataCollection <- rbind(myMetadataCollection, myMetadata)
+        } else { ## close if, open else
+          errorResultCurrent <- data.frame(Volume = thisVolume, File = f, Article = a, name = filesCurrentVolume[f])
+          errorResultsAll <- rbind(errorResultsAll, errorResultCurrent)
+          ##     pageLimit <- pageLimit -1  
+          return
+        } ## close else
+      }# close a
+      cat('Vol ', thisVolume,  ' file ', f, 'of', (length(filesCurrentVolume)), "   + ", ((length(xml_find_all(currentFile, xpath = "//article")))), ' articles', '\n')
+    } #close f, 
+  } ## close t  loop
+  # replacements to carry out as they sometimes get lost/isolated in linebreaks
+  myMetadataCollection$SaveTitle <- gsub("[:;/]", "-", myMetadataCollection$Title)
+  myMetadataCollection$SaveTitle <- gsub("\\\\", "-",myMetadataCollection$SaveTitle)
+  myMetadataCollection$SaveTitle <- str_sub(myMetadataCollection$SaveTitle, 1, 75)
+  
+  myMetadataCollection$BodyClean <- gsub("<(|/)italic>", "", myMetadataCollection$BodyClean)
+  myMetadataCollection$BodyClean <- gsub(", ,", ", ", myMetadataCollection$BodyClean)
+  myMetadataCollection$BodyClean <- gsub("\\[\\]", "", myMetadataCollection$BodyClean)
+  myMetadataCollection$BodyClean <-  gsub("\\[, \\]", "",myMetadataCollection$BodyClean)
+  myMetadataCollection$BodyClean <- gsub("\\[–\\]","",  myMetadataCollection$BodyClean)
+  myMetadataCollection$BodyClean <- gsub("\\[0-9]","",  myMetadataCollection$BodyClean)
+  myMetadataCollection$BodyClean <- gsub("<(|/)body>", "\n", myMetadataCollection$BodyClean)
+  myMetadataCollection$BodyClean <- gsub("<sec id=.+?>", "", myMetadataCollection$BodyClean)
+  myMetadataCollection$BodyClean <- gsub("<p id=.+?>", "\n", myMetadataCollection$BodyClean)
+  myMetadataCollection$BodyClean <- gsub("<sec id=.+?>", "\n", myMetadataCollection$BodyClean)
+  myMetadataCollection$BodyClean <- gsub("</sec>", "\n", myMetadataCollection$BodyClean)
+  myMetadataCollection$BodyClean <- gsub("<(|/)title>", "\n", myMetadataCollection$BodyClean)
+  myMetadataCollection$BodyClean <- gsub("<(|/)p>", "\n", myMetadataCollection$BodyClean)
+  myMetadataCollection$BodyClean <- gsub("<ext-link.+?</ext-link>", "", myMetadataCollection$BodyClean)
+  myMetadataCollection$BodyClean <- gsub("<(|/)list-item>", "\n", myMetadataCollection$BodyClean)
+  myMetadataCollection$BodyClean <- gsub("<list.+?>", "\n", myMetadataCollection$BodyClean)
+  myMetadataCollection$BodyClean <- gsub("<(|/)list>", "\n", myMetadataCollection$BodyClean)
+  myMetadataCollection$BodyClean <- gsub("<(|/)bold>", "", myMetadataCollection$BodyClean)
+  myMetadataCollection$BodyClean <- gsub("<(|/)underline>", "", myMetadataCollection$BodyClean)
+  myMetadataCollection$BodyClean <- gsub("<(|/)sub>", "", myMetadataCollection$BodyClean)
+  myMetadataCollection$BodyClean <- gsub("<sec>", "\n", myMetadataCollection$BodyClean)
+  myMetadataCollection$BodyClean <- gsub("<(|/)sc>", "\n", myMetadataCollection$BodyClean)
+  myMetadataCollection$BodyClean <- gsub("<(|/)disp-quote>", "", myMetadataCollection$BodyClean)
+  myMetadataCollection$BodyClean <- gsub("<inline-formula id=\".+?\">.+?</inline-formula>", "", myMetadataCollection$BodyClean)
+  myMetadataCollection$BodyClean <- gsub("<supplementary-material.+?</supplementary-material>", "", myMetadataCollection$BodyClean)
+  myMetadataCollection$BodyClean <- gsub("<graphic xmlns:xlink=.+?>", "", myMetadataCollection$BodyClean)
+  myMetadataCollection$BodyClean <- gsub("<p/>", "\n", myMetadataCollection$BodyClean)
+  myMetadataCollection$BodyClean <- stripWhitespace(myMetadataCollection$BodyClean)
+  
+  # add data on keywords
+  myMetadataCollection$Keywords <- myMetadataCollection$Keywords
+  myMetadataCollection$Keywords <- gsub("</kwd>", ", ", myMetadataCollection$Keywords)
+  myMetadataCollection$Keywords <- gsub("<kwd>", "", myMetadataCollection$Keywords)
+  myMetadataCollection$Keywords <- gsub("<(|/)italic>",  "", myMetadataCollection$Keywords)
+  myMetadataCollection$Keywords <- stripWhitespace(myMetadataCollection$Keywords)
+  myMetadataCollection$DOISave <- gsub("/", "-", myMetadataCollection$DOI)
+}# close processing section
+
+
+## output to Articles + archive
+
+
+for (x in StartVolume:FinishVolume){
+  myMetadataOutputVolume <- myMetadataCollection[which(myMetadataCollection$Volume == x),]
+  ArticleSaveFolder <- paste("/Users/me/Desktop/TargetDocuments/", ISSN, "-" , x, "-TXT/", sep="") # it's handy to write these to similar locations as above, to allow for easier comparison of numbers, etc
+  VolumeSaveFolder <- paste("/Users/me/Desktop/TargetDocuments/", sep="")
+  ifelse(!dir.exists(file.path(ArticleSaveFolder)),   dir.create(file.path(ArticleSaveFolder)),   FALSE  )
+  ifelse(!dir.exists(file.path(VolumeSaveFolder)),   dir.create(file.path(ArticleSaveFolder)),   FALSE  )
+# these  define folder names, and then create the folders if they don't exist
+  ## write the dataframe as a csv
+  write.csv(myMetadataOutputVolume, paste(VolumeSaveFolder,  ISSN, "-", x, "-Archive.csv", sep=""))
+  
+  
+## Note: this part will output individual text files, and should be used with caution when large numbers of texts are processed, as OSes aren't designed to have tens/hundreds of thousands of files in folders
+  ## export articles individually
+  for (i in 1:dim(myMetadataOutputVolume)[1]){
+    outputBody <- paste(myMetadataOutputVolume$Title[i], "\n", myMetadataOutputVolume$BodyClean[i])
+    writeChar(outputBody, paste(ArticleSaveFolder, myMetadataOutputVolume$DOISave [i], ".txt", sep=""))
+  }
+}
+
+
+## remove some columns that aren't of much interest for a given reason
+colnames(myMetadataCollection) # check the names if needs be
+storage <- myMetadataCollection[c(2:7, 9, 11)] # remove some columns
+
+# secureStorage <- myMetadataCollection # save the output to a new variable ; leaving it commented means it can't be overwritten accidentally
+# secureStorage <- storage
+# backup <- storage
+# storage <- rbind(secureStorage, ArticlesProcessed)
+
+
+## clear creation, processing variables
+rm( ArticlesProcessed, currentArticle, currentTarget, DownloadedFilesAll,   FinishVolume, h, i, ISSN,  MoreIterationsNeeded, myFiles, myXMLSaveFolder,  StartVolume,  theseFiles, TotalArticles, Volume, x, ArticleSaveFolder, errorResultsAll, xPathArticle, xPathArticleBody, xPathArticleISSN2, xPathArticleKeywords, xPathArticleNumber, xPathDOI, xPathPublishedDD, xPathPublishedMM, apiKey, currentRequest, Endpoint, IwantToStartAt, perPage, Remaining,Request1,Start, xPathPublishedYYYY, xPathTitle, DD, MM, YYYY, Body, Keywords, currentFile, currentFileXML, f, a, filesCurrentVolume, t, thisVolume, VolumeSaveFolder, myMetadata, myMetadataOutputVolume, outputBody)
+
+
+## supplement :  basic descriptive statistics on the corpora created
+
+## stoplists to ID candidate terms
+ENstoplist <- as.data.frame(stopwords(kind = "en")) # make a df of stopwords from predefined list
+names(ENstoplist)[1] <- "Stopword" # name column
+
+## for 1 grams = words
+counts <- storage %>%  # unnest tokens at the word level, from the bodyclean column, counting word forms, then add a column Freq, which is the number n divided by  the total of all the ns (ie count of all words in corpus) and multiply by a million to get Occs Per Million words for each word form
+  unnest_tokens(word, BodyClean) %>% 
+  count(word) %>% 
+  mutate(Freq = n/sum(n)*1000000)
+
+wordCount = sum(counts$n) # set wordcount as sum of counts
+
+countsStopped <- anti_join(counts, ENstoplist, by = c("word" = "Stopword")) # remove stopwords from our list of corpus words
+colnames(counts)
+countsVolume <- storage %>% # unnest tokens as above, without stopwords, but taking account of volume gives us wordcounts for each volume
+  unnest_tokens(word, BodyClean) %>% 
+  count(word, Volume) %>% 
+  mutate(Freq = n/sum(n)*1000000)
+
+countsDOI <- storage %>% # unnest tokens as above, without stopwords, but taking account of volume and DOI (thus article), to get wordcounts for each wordform in each article
+  unnest_tokens(word, BodyClean) %>% 
+  count(DOI, Volume,word ) 
+
+countsSummaryDOI<- storage %>% ## unnest words from bodyclean, count DOI and volume = gives us wordcounts per article (not worrying about word form)
+  unnest_tokens(word, BodyClean) %>% 
+  count(DOI, Volume)
+
+countsSummaryVolume <- storage %>% ## unnest from bodyclean, count at volume level = gives us wordcounts per volune
+  unnest_tokens(word, BodyClean) %>% 
+  count(Volume)
+
+## make tdm
+TDM <- TermDocumentMatrix(Corpus((VectorSource(storage$CleanText)))) # if you want to can make a term-document matrix
+##
+
+## tf-idf for words # or calculate  term frequency and inverse-document frequency
+countsDOI <- countsDOI %>% 
+  bind_tf_idf(DOI, word, n) %>% 
+  arrange(desc(tf_idf))
+
+##2-grams # create list of 2 grams
+counts2grams <- storage %>%  # unnest ngrams fromm bodyclean column, re-specify we wantn ngrams, that n = 2, count ngrams, then arrange results in descending order
+  unnest_tokens(ngram, BodyClean, token = "ngrams", n=2) %>% 
+  count(ngram) %>% 
+  arrange(desc(n))
+
+counts2gramsByDOI <- storage %>% # unnest ngrams from bodyclean column, respecify we want ngrams, than n=2, count ngrams for each DOI = for each article, add tf_idf data, arrange by descending tf_idf
+  unnest_tokens(ngram, BodyClean, token = "ngrams", n=2) %>% 
+  count(DOI, ngram) %>% 
+  bind_tf_idf(DOI, ngram, n) %>% 
+  arrange(desc(tf_idf))
+
+counts2gramsByVolume <- storage %>% # unnest ngrams from bodyclean column, respecify we want ngrams, than n=2, count ngrams for each volume, add tf_idf data, arrange by descending tf_idf
+  unnest_tokens(ngram, BodyClean, token = "ngrams", n=2) %>% 
+  count(Volume, ngram) %>% 
+  bind_tf_idf(Volume, ngram, n) %>% 
+  arrange(desc(tf_idf))
+
+## modify and separate to facilitate searching of ngrams
+counts2gramsByDOI$temp <- counts2gramsByDOI$ngram #create a temporary placeholder field
+counts2gramsByDOI <- separate(counts2gramsByDOI, temp, c("W1", "W2"), sep=" ") %>%  # separate ngrams into 1 word chunks for Word 1 and Word2, and sort by count
+  arrange(desc(n))
+
+counts2grams$temp <- counts2grams$ngram # do same as above for counts2grams (above we did for this info taking account of DOI as well)
+counts2grams <- separate(counts2grams, temp, c("W1", "W2"), sep=" ") %>% 
+  arrange(desc(n))
+
+counts2gramsByVolume$temp <- counts2gramsByVolume$ngram # do same as above, taking account of volume, however
+counts2gramsByVolume <- separate(counts2gramsByVolume, temp, c("W1", "W2"), sep=" ") %>% 
+  arrange(desc(n))
+
+## remove cases where either Word1 or Word2 is in the Stoplist we defined earlier
+counts2gramsStoppedDOI <- anti_join(counts2gramsByDOI, ENstoplist, by = c("W1" = "Stopword"))
+counts2gramsStoppedDOI <- anti_join(counts2gramsStoppedDOI, ENstoplist, by = c("W2" = "Stopword"))
+
+counts2gramsStopped <- anti_join(counts2grams, ENstoplist, by = c("W1" = "Stopword"))
+counts2gramsStopped <- anti_join(counts2gramsStopped, ENstoplist, by = c("W2" = "Stopword"))
+
+counts2gramsByVolumeStopped <- anti_join(counts2gramsByVolume, ENstoplist, by = c("W1" = "Stopword"))
+counts2gramsByVolumeStopped <- anti_join(counts2gramsByVolumeStopped, ENstoplist, by = c("W2" = "Stopword"))
+
+
+##3-grams # follow same procedure as above to get list of 3grams
+counts3grams <- storage %>% 
+  unnest_tokens(ngram, BodyClean, token = "ngrams", n=3) %>% 
+  count(ngram) %>% 
+  arrange(desc(n))
+
+counts3gramsByDOI <- storage %>% # then get list of 3 grams for each article
+  unnest_tokens(ngram, BodyClean, token = "ngrams", n=3) %>% 
+  count(DOI, ngram) %>% 
+  bind_tf_idf(DOI, ngram, n) %>% 
+  arrange(desc(tf_idf))
+# then get list of 3grams for each volume
+counts3gramsByVolume <- storage %>% 
+  unnest_tokens(ngram, BodyClean, token = "ngrams", n=3) %>% 
+  count(Volume, ngram) %>% 
+  bind_tf_idf(Volume, ngram, n) %>% 
+  arrange(desc(tf_idf))
+
+# separate 3grams into 3 columns for these 3 lists we just generated
+## modify and separate to facilitate searching of ngrams
+counts3gramsByDOI$temp <- counts3gramsByDOI$ngram
+counts3gramsByDOI <- separate(counts3gramsByDOI, temp, c("W1", "W2", "W3"), sep=" ") %>% 
+  arrange(desc(n))
+
+counts3grams$temp <- counts3grams$ngram
+counts3grams <- separate(counts3grams, temp, c("W1", "W2", "W3"), sep=" ") %>% 
+  arrange(desc(n))
+
+counts3gramsByVolume$temp <- counts3gramsByVolume$ngram
+counts3gramsByVolume <- separate(counts3gramsByVolume, temp, c("W1", "W2", "W3"), sep=" ") %>% 
+  arrange(desc(n))
+
+ENstoplist <- as.data.frame(stopwords(kind = "en"))
+names(ENstoplist)[1] <- "Stopword"
+# remove cases where any of the three words in the ngram is a stopword
+counts3gramsStopped <- anti_join(counts3grams, ENstoplist, by = c("W1" = "Stopword"))
+counts3gramsStopped <- anti_join(counts3gramsStopped, ENstoplist, by = c("W2" = "Stopword"))
+counts3gramsStopped <- anti_join(counts3gramsStopped, ENstoplist, by = c("W3" = "Stopword"))
+
+counts3gramsByDOIStopped <- anti_join(counts3gramsByDOI, ENstoplist, by = c("W1" = "Stopword"))
+counts3gramsByDOIStopped <- anti_join(counts3gramsByDOIStopped, ENstoplist, by = c("W2" = "Stopword"))
+counts3gramsByDOIStopped <- anti_join(counts3gramsByDOIStopped, ENstoplist, by = c("W3" = "Stopword"))
+
+
+counts3gramsByVolumeStopped <- anti_join(counts3gramsByVolume, ENstoplist, by = c("W1" = "Stopword"))
+counts3gramsByVolumeStopped <- anti_join(counts3gramsByVolumeStopped, ENstoplist, by = c("W2" = "Stopword"))
+counts3gramsByVolumeStopped <- anti_join(counts3gramsByVolumeStopped, ENstoplist, by = c("W3" = "Stopword"))
+
+library(beepr)
+beep(3) # make a noise when done
+
+
+
+
+## searching in words/ngrams: 3 ways to search, using 3grams as examples; to search others, just substitute the df name - here, we're dealing with 3 grams, in this df : counts3gramsByVolumeStopped
+
+## 1. Search with 'which'
+searchTerm <- "metastasis"
+test <- counts3gramsByVolumeStopped[which(counts3gramsByVolumeStopped$W1 == searchTerm | counts3gramsByVolumeStopped$W2 == searchTerm| counts3gramsByVolumeStopped$W3 == searchTerm),]
+view(test)
+
+
+## 2. searching by filter
+test <- counts3gramsByVolumeStopped %>% 
+  filter(W1 == searchTerm | W2 == searchTerm |  W3 == searchTerm)
+
+## 3. search for patterns/regex
+## whereas 1 and 2 only find exact matches, 3 allows for wildcards/jokers
+
+## define search
+searchTerm <- "meta.*"
+
+# run in each search field, outputting result as T/F
+counts3gramsByVolumeStopped$search1 <- grepl(searchTerm, counts3gramsByVolumeStopped$W1)
+counts3gramsByVolumeStopped$search2 <- grepl(searchTerm, counts3gramsByVolumeStopped$W2)
+counts3gramsByVolumeStopped$search3 <- grepl(searchTerm, counts3gramsByVolumeStopped$W3)
+
+## get all cases where any of the above searches gave
+test <- counts3gramsByVolumeStopped[which(counts3gramsByVolumeStopped$search1 == T | counts3gramsByVolumeStopped$search2 == T |  counts3gramsByVolumeStopped$search3 == T),]
+view(test)
+
