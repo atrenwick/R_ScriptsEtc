@@ -1,0 +1,275 @@
+### Taking output from concordancer with custom output and analysing in R to get frequency over time, etc
+
+# load libraries
+library(tidytext) ; library(stringr) ; library(hrbrthemes) ;library(tidyverse); library(ggplot2) ; library(zoo); library(tm) ; library(purrr) ; library(tibble) ; library(dplyr) ; library(svDialogs) ; library(tidyr) ; library(lubridate) ; 
+
+### read in corpus files at day level, as this has ID = day name. This can be skipped if you already have generated these data from in another script
+## result is a df, with 3 columns, for words, ids, and counts
+WholeCorpus <- tidy(VCorpus(DirSource('/Volumes/Rikiki/myCorpus/txt/')), collapse = "\n") %>%
+  unnest_tokens(word, text) %>% 
+  count(id, word, sort = TRUE) 
+
+WholeCorpus$Journal <- (substring(WholeCorpus$id, 1, 3)) ### get 3 letter code used to ID subcorpora
+WholeCorpus$YYYY <- as.integer(substring(WholeCorpus$id, 7, 10)) ### get YYYY
+WholeCorpus$MM <- as.integer(substring(WholeCorpus$id, 12, 13)) ### get MM
+WholeCorpus$DD <- as.integer(substring(WholeCorpus$id, 15, 16)) ### get DD
+
+WholeCorpus <- WholeCorpus[-c(1)] # remove column 1 with IDs, as now have these in separate sortable columns
+
+# if we want to can get R to add the names of the days of the week:
+WholeCorpus$DayName <- weekdays(as.Date(paste(WholeCorpus$YYYY, WholeCorpus$MM, WholeCorpus$DD, sep="-"))) ### add day names : this is obviously not relevant when we deal with data at a month-level, or a year-level
+WholeCorpus <- WholeCorpus[, c("Country", "Lang", "Code", "City", "YYYY", "MM", "DD", "DayName", "WordCount")]
+# and we can put fields in a specific order, as above, and sort them in specific order, eg as below, which will sort by column 6 then by column 7, regardless of what happens to be in there, so caution is needed
+WholeCorpus <- WholeCorpus[  order( WholeCorpus[,6], WholeCorpus[,7] ),]
+
+
+### now we generate lists at Y, M and D level: one list contains all the word forms from a given day/month/year and the number of occurrences of each form = Occurrences ; the other contains the total number of words used per day/month/year
+CurrentOccurrencesDay <- WholeCorpus %>% 
+  group_by(YYYY, MM, DD, word) %>% 
+  summarise(Wordcount=sum(n))
+
+## wordlist + occurrences per MM
+CurrentOccurrencesMM <- WholeCorpus %>% 
+  group_by(YYYY, MM, word) %>% 
+  summarise(Wordcount=sum(n))
+
+## wordlist + occurrences per YYYY
+CurrentOccurrencesYYYY <- WholeCorpus %>% 
+  group_by(YYYY,  word) %>% 
+  summarise(Wordcount=sum(n))
+
+## get wordcount per day
+CurrentWordcountsDay <- WholeCorpus %>% 
+  group_by(YYYY, MM, DD) %>% 
+  summarise(Wordcount=sum(n))
+
+## wordcount per month
+CurrentWordcountsMM <- WholeCorpus %>% 
+  group_by(YYYY, MM) %>% 
+  summarise(Wordcount=sum(n))
+
+## wordcount per YYYY
+CurrentWordcountsYYYY <- WholeCorpus %>% 
+  group_by(YYYY) %>% 
+  summarise(Wordcount=sum(n))
+
+## Part 2 : Getting relevant frequency data
+## 2.1 One option is to import concorances from concordancer, and process these occurrences to generate frequency data.
+## 2.1 Another option is to do all the analysis in R, which involves doing searches within the results, words returned etc.
+
+## 2.1 : Using data with occurrences from a concordancer.
+## these data come in a customised format with 9 columns of data; Source, Year, Month, Day, LeftContext, Verb, Head, Pivot and RightContext.
+## Source = source publication ; Year-Month-Date are date of publication. Left + Right context = x characters L and R of search term in concordancer
+## Verb = the verb from which the TION word is derived (ACTION is derived from ACT, RESUMPTION is derived from RESUME, head represents the lemma the Pivot term corresponds to; Pivot = pivot as automatically identified in corpus, and may contain punctuation, etc whereas lemmas do not)
+
+#read TION occurrences from external source/concordancer
+TIONoccurrences <- read.csv("/Users/me/202109TIONs.csv", header = F)
+names(TIONoccurrences)[1] <-  "Journal" ;names(TIONoccurrences)[2] <-  "YYYY" ; names(TIONoccurrences)[3] <-  "MM" ;
+names(TIONoccurrences)[4] <-  "DD" ;names(TIONoccurrences)[5] <-  "LC" ; names(TIONoccurrences)[6] <-  "Verb" ;
+names(TIONoccurrences)[7] <-  "Head" ;names(TIONoccurrences)[8] <-  "Pivot" ; names(TIONoccurrences)[9] <-  "RC" ;
+# import the data and name the fields
+
+
+## remove LC and RC # remove these fields, as we won't be using them today
+TIONoccurrences <- TIONoccurrences[-c(5,9)]
+
+## Add 1 as count of occurrences, set YMD as int 
+# as we have concordance data at the moment, each line is one concordance = 1 hit, so we can specify a new column/quantity, that each occurrence is numerically 1 occurrence. this way we can add up occurrences of similar TION words
+# we'll also avoid any issues by forcing the Year, M and D contents to be registered as integers, so we can do math on them and sort them if we wish
+TIONoccurrences$Occ <- 1
+TIONoccurrences$YYYY <- as.integer(TIONoccurrences$YYYY)
+TIONoccurrences$MM <- as.integer(TIONoccurrences$MM)
+TIONoccurrences$DD<- as.integer(TIONoccurrences$DD)
+
+## get TION occs per verb, pivot, head, for YYYY, MM, DD 
+TIONoccurrencesDDVerb <- TIONoccurrences %>% 
+  group_by( YYYY, MM, DD, Verb) %>% 
+  summarise(n=sum(Occ))
+
+TIONoccurrencesDDHead <- TIONoccurrences %>% 
+  group_by( YYYY, MM, DD, Head) %>% 
+  summarise(n=sum(Occ))
+
+TIONoccurrencesMMVerb <- TIONoccurrences %>% 
+  group_by( YYYY, MM,  Verb) %>% 
+  summarise(n=sum(Occ))
+
+TIONoccurrencesMMHead <- TIONoccurrences %>% 
+  group_by( YYYY, MM, Head) %>% 
+  summarise(n=sum(Occ))
+
+TIONoccurrencesYYYYVerb <- TIONoccurrences %>% 
+  group_by( YYYY,  Verb) %>% 
+  summarise(n=sum(Occ))
+
+TIONoccurrencesYYYYHead <- TIONoccurrences %>% 
+  group_by( YYYY,  Head) %>% 
+  summarise(n=sum(Occ))
+
+
+### so far we only have absolute counts that particular TION forms were observed on certain days/months/years, which we just summed for different permutations of year, month, day, verb and head
+## If we add in data we calculated earlier regarding number of words per day/month/year, we can calculate relative frequencies of our TION words
+DDVerbFinal <- right_join(TIONoccurrencesDDVerb, CurrentWordcountsDay, by = c("YYYY", "MM", "DD")) %>% 
+  mutate(FreqRel = n/Wordcount *1000000)
+rm(TIONoccurrencesDDVerb) # remove temporary variable created to facilitate calculations
+
+DDHeadFinal <- right_join(TIONoccurrencesDDHead, CurrentWordcountsDay, by = c("YYYY", "MM", "DD")) %>% 
+  mutate(FreqRel = n/Wordcount *1000000)
+rm(TIONoccurrencesDDHead)# remove temporary variable created to facilitate calculations
+
+MMVerbFinal <- right_join(TIONoccurrencesMMVerb, CurrentWordcountsMM, by = c("YYYY", "MM")) %>% 
+  mutate(FreqRel = n/Wordcount *1000000)
+rm(TIONoccurrencesMMVerb)# remove temporary variable created to facilitate calculations
+
+MMHeadFinal <- right_join(TIONoccurrencesMMHead, CurrentWordcountsMM, by = c("YYYY", "MM")) %>% 
+  mutate(FreqRel = n/Wordcount *1000000)
+rm(TIONoccurrencesMMHead)# remove temporary variable created to facilitate calculations
+
+YYYYVerbFinal <- right_join(TIONoccurrencesYYYYVerb, CurrentWordcountsYYYY, by = c("YYYY")) %>% 
+  mutate(FreqRel = n/Wordcount *1000000)
+rm(TIONoccurrencesYYYYVerb)# remove temporary variable created to facilitate calculations
+
+YYYYHeadFinal <- right_join(TIONoccurrencesYYYYHead, CurrentWordcountsYYYY, by = c("YYYY")) %>% 
+  mutate(FreqRel = n/Wordcount *1000000)
+rm(TIONoccurrencesYYYYHead)# remove temporary variable created to facilitate calculations
+
+## now we have the data, we can graph it : suppose we want to look at the use of specific words want to compare over the timespan of our corpora
+
+Graph1Data <- DDVerbFinal
+# plot the data
+# if there are more than about 10 different items followed through the corpora, the graphs can become very hard to interpret due to large number of lines and similar colours
+Graph1 <-   ggplot(Graph1Data, aes(x = (ymd(paste(YYYY, MM, DD, sep ="-"))), y = FreqRel, colour = Verb)) +
+  geom_line(size =1.5, alpha = 1) +
+  geom_point(size = 3, shape = 4) +
+  scale_x_date(expand = c(0,0), date_breaks = "years" , date_labels = "%Y"  ) + ## force x axis  start at origin (regardless of year), breaks = YY;  4 digit year (Y), cf (y) = 2 digit)
+  scale_y_continuous(expand = c(0,0), limits =c(0, 250), breaks = seq(0, 250, 50)) + ## add breaks at specified intervals (from 0 to 0.6, at steps of 0.1)
+  labs(y="Freq /M", x ="Year") +
+  ggtitle((paste0("RelFreq of TION forms ",  sep=""))) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme(plot.title = element_text(color = "limegreen")) +
+  theme(plot.title = element_text(size = 20, face = "bold"))+
+  theme(legend.position = 'bottom') +
+  
+  theme(    legend.position = c(.1, .95),
+            legend.justification = c("left", "top"),
+            legend.box.just = "right",
+            legend.margin = margin(6, 6, 6, 6))+
+  labs(title =, tag = "A")
+
+
+Graph1aData <- Graph1Data[which(Graph1Data$n>1),]
+Graph1a <-   ggplot(Graph1aData, aes(x = (ymd(paste(YYYY, MM, DD, sep ="-"))), y = FreqRel, colour = Verb)) +
+  geom_line(size =1.5, alpha = 1) +
+  geom_point(size = 3, shape = 4) +
+  scale_x_date(expand = c(0,0), date_breaks = "years" , date_labels = "%Y"  ) + ## force x axis  start at origin (regardless of year), breaks = YY;  4 digit year (Y), cf (y) = 2 digit)
+  scale_y_continuous(expand = c(0,0), limits =c(0, 250), breaks = seq(0, 250, 50)) + ## add breaks at specified intervals (from 0 to 0.6, at steps of 0.1)
+  labs(y="Freq /M", x ="Year") +
+  ggtitle((paste0("RelFreq of TION forms ",  sep=""))) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme(plot.title = element_text(color = "limegreen")) +
+  theme(plot.title = element_text(size = 20, face = "bold"))+
+  theme(legend.position = 'bottom') +
+  
+  theme(    legend.position = c(.1, .95),
+            legend.justification = c("left", "top"),
+            legend.box.just = "right",
+            legend.margin = margin(6, 6, 6, 6))+
+  labs(title =, tag = "A")
+ggsave( "/Users/me/RelFreqTIONforms-DAYGraph1a.jpg", plot = Graph1a, dpi = 320, width = 40, height = 16, units =c("cm"))
+
+
+## if number of variables is very high, a graph calculating the total frequency of the involved items at a day-by-day level can be helpful
+Graph1bData <- Graph1Data %>% 
+  group_by(YYYY, MM, DD) %>% 
+  summarise(CumFreq = sum(FreqRel))
+## 
+Graph1b <-   ggplot(Graph1bData, aes(x = (ymd(paste(YYYY, MM, DD, sep ="-"))), y = CumFreq, colour = "Sum")) +
+  geom_line(size =1.5, alpha = 1) +
+  geom_point(size = 3, shape = 4) +
+  scale_x_date(expand = c(0,0), date_breaks = "years" , date_labels = "%Y"  ) + ## force x axis  start at origin (regardless of year), breaks = YY;  4 digit year (Y), cf (y) = 2 digit)
+  scale_y_continuous(expand = c(0,0), limits =c(0, 500), breaks = seq(0, 500, 50)) + ## add breaks at specified intervals (from 0 to 0.6, at steps of 0.1)
+  labs(y="Freq /M", x ="Year") +
+  ggtitle((paste0("RelFreq of TION forms ",  sep=""))) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme(plot.title = element_text(color = "limegreen")) +
+  theme(plot.title = element_text(size = 20, face = "bold"))+
+  theme(legend.position = 'bottom') +
+  
+  theme(    legend.position = c(.1, .95),
+            legend.justification = c("left", "top"),
+            legend.box.just = "right",
+            legend.margin = margin(6, 6, 6, 6))+
+  labs(title =, tag = "A")
+ggsave( "/Users/me/RelFreqTIONforms-DAYGraph1b.jpg", plot = Graph1b, dpi = 320, width = 40, height = 16, units =c("cm"))
+
+
+## and finally we can add an additional line for a specific verb to see what part of the whole usage this makes up over time
+myComparisonLine <- Graph1Data%>% ## mult/ search crit goes here
+  filter(str_detect(Verb, "^stream$")|str_detect(Verb, "^streams$")) 
+
+# plot graph1c
+ggplot(Graph1bData, aes(x = (ymd(paste(YYYY, MM, DD, sep ="-"))), y = CumFreq, colour = "red")) +
+  geom_line(size =1.5, alpha = 1) +
+  geom_point(size = 3, shape = 4) +
+  geom_line(data = myComparisonLine, 
+            aes(x = (ymd(paste(YYYY, MM, DD, sep ="-"))), y = FreqRel), colour = "green", linetype = 1, size =1, alpha = 0.5) + 
+  scale_x_date(expand = c(0,0), date_breaks = "years" , date_labels = "%Y"  ) + ## force x axis  start at origin (regardless of year), breaks = YY;  4 digit year (Y), cf (y) = 2 digit)
+  scale_y_continuous(expand = c(0,0), limits =c(0, 500), breaks = seq(0, 500, 50)) + ## add breaks at specified intervals (from 0 to 0.6, at steps of 0.1)
+  labs(y="Freq /M", x ="Year") +
+  ggtitle((paste0("RelFreq of TION forms ",  sep=""))) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme(plot.title = element_text(color = "limegreen")) +
+  theme(plot.title = element_text(size = 20, face = "bold"))+
+  labs(title =, tag = "A")
+ggsave( "/Users/me/RelFreqTIONforms-DAYGraph1c.jpg", plot = Graph1c, dpi = 320, width = 40, height = 16, units =c("cm"))
+
+###################################
+
+## Part 2.2 : Option for processing without use of external concordancer
+action <- CurrentOccurrencesDay%>% ## mult/ search crit goes here
+  filter(str_detect(word, "^action$")|str_detect(word, "^actions$")) 
+
+fiction <- CurrentOccurrencesDay%>% ## mult/ search crit goes here
+  filter(str_detect(word, "^fiction$")|str_detect(word, "^fictions$")) 
+
+# bind results into single dataframe
+results_Part2 <- rbind(action, fiction)
+
+## create lemmas in new column
+results_Part2$lemma <- gsub("s$", "", results_Part2$word)
+
+## get relevant frequency data
+results_Part2 <- left_join(results_Part2, CurrentWordcountsDay, by = c("YYYY", "MM", "DD")) %>% 
+  mutate(FreqRel = Wordcount.x/Wordcount.y*1000000)
+names(results_Part2)[5] <- "n" ; names(results_Part2)[7] <- "Wordcount" ; 
+
+#this line will add serial numbers to each row if we want them to be added to the new column, 'serial'
+results_Part2$serial<-1:nrow(results_Part2)### add serial numbers
+
+
+
+## define data we'll graph : from year equal to or greater then 1995 whilst also occurring more than 1 times, for example
+Graph2Data <- results_Part2[which(results_Part2$YYYY>="1995" & results_Part2$n>1),]
+
+# plot the data
+Graph2 <-   ggplot(Graph2Data, aes(x = (ymd(paste(YYYY, MM, DD, sep ="-"))), y = FreqRel, colour = lemma)) +
+  geom_line(size =1.5, alpha = 1) +
+  geom_point(size = 3, shape = 4) +
+  scale_x_date(expand = c(0,0), date_breaks = "years" , date_labels = "%Y"  ) + ## force x axis  start at origin (regardless of year), breaks = YY;  4 digit year (Y), cf (y) = 2 digit)
+  scale_y_continuous(expand = c(0,0), limits =c(0, 250), breaks = seq(0, 250, 50)) + ## add breaks at specified intervals (from 0 to 0.6, at steps of 0.1)
+  labs(y="Freq /M", x ="Year") +
+  ggtitle((paste0("RelFreq of TION forms ",  sep=""))) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme(plot.title = element_text(color = "limegreen")) +
+  theme(plot.title = element_text(size = 20, face = "bold"))+
+  theme(legend.position = 'bottom') +
+  
+  theme(    legend.position = c(.1, .95),
+            legend.justification = c("left", "top"),
+            legend.box.just = "right",
+            legend.margin = margin(6, 6, 6, 6))+
+  labs(title =, tag = "A")
+# export graph
+
+ggsave( "/Users/me/RelFreqTIONforms-DAY.jpg", plot = Graph2, dpi = 320, width = 40, height = 16, units =c("cm"))
+
