@@ -22,7 +22,6 @@ WholeCorpus <- WholeCorpus[, c("Country", "Lang", "Code", "City", "YYYY", "MM", 
 # and we can put fields in a specific order, as above, and sort them in specific order, eg as below, which will sort by column 6 then by column 7, regardless of what happens to be in there, so caution is needed
 WholeCorpus <- WholeCorpus[  order( WholeCorpus[,6], WholeCorpus[,7] ),]
 
-
 ### now we generate lists at Y, M and D level: one list contains all the word forms from a given day/month/year and the number of occurrences of each form = Occurrences ; the other contains the total number of words used per day/month/year
 CurrentOccurrencesDay <- WholeCorpus %>% 
   group_by(YYYY, MM, DD, word) %>% 
