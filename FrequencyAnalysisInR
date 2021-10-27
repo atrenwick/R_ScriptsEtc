@@ -9,7 +9,6 @@ CurrentMonthlyFreqList <- data.frame()
 CurrentYearlyStats <- data.frame()
 CurrentYearlyFreqList <- data.frame()
 
-
 ## load libraries used
 library(rjson) ; library(jsonlite) ; library(tibble) ; library(beepr); library(tm) ; library(textclean) ; library(dplyr) ; library(stringr) ; library(rvest) ; library(tidyr) ; library(data.table) ; library(tidyverse); library(tidytext) ; library(purrr) ; library(lubridate) ; library(zoo) ; library(scales)
 
@@ -19,7 +18,7 @@ library(rjson) ; library(jsonlite) ; library(tibble) ; library(beepr); library(t
 
 
 ## get corpus files, generate wordlists, stats…
-corpus_docs <- tidy((VCorpus(DirSource(paste("/Volumes/myCorpus/UTF8", sep=""), encoding="UTF-8"))), collapse = "\n")
+corpus_docs <- tidy((VCorpus(DirSource(paste("/Volumes/Rikiki/myCorpus/txt", sep=""), encoding="UTF-8"))), collapse = "\n")
 
 corpus_docs$text <-   gsub("\'|’", "\' ", corpus_docs$text) ## space elisions
 corpus_docs$text <-   gsub("  ", " ", corpus_docs$text) ## remove double spaces
@@ -40,31 +39,31 @@ corpus_docs$text <- gsub("\\.", "", corpus_docs$text)
 ## the ID field is imported from the source file name ; this contains YMD info as well as the section - (world, sport, supplement…)
 ## separate these out
 corpus_docs <-  corpus_docs %>%  
-  separate(id, c("YYYY", "MM", "DD", "Section"), "-") 
+  separate(id, c("Source", "Section", "YYYY", "MM", "DD", "a"), "-") 
 
-## head(corpus_docs)
+
 # remove columns we don't want - 5-8
-corpus_docs <- corpus_docs[-c(1:4, 9,10)]
-col_order <- c("YYYY", "MM", "DD", "Section", "text") # define order we want columns in
+corpus_docs <- corpus_docs[-c(1:4, 10,11)]
+col_order <- c("YYYY", "MM", "DD", "Section", "Source","text") # define order we want columns in
 corpus_docs <- corpus_docs[, col_order] # put columns in this order
 
-corpus_docs$Section <- gsub(".txt", "", corpus_docs$Section) # remove .txt from the names of the sections
-
+corpus_docs$Source <- gsub(".txt", "", corpus_docs$Source) # remove .txt from the names of the Sources
+colnames(corpus_docs)
 ## Get count of words per DAY for this corpus
 DailyWordCounts <- corpus_docs %>% 
   unnest_tokens(word, text) %>% 
-  count(YYYY, MM, DD, Section ) 
+  count(YYYY, MM, DD, Source) 
 CurrentDayStats <- (DailyWordCounts)
 head(CurrentDayStats)
 
 ## get individual word counts per day
 MyWordlist <- corpus_docs %>%
   unnest_tokens(word, text) %>% 
-  count(word, YYYY, MM, DD, Section ) 
+  count(word, YYYY, MM, DD, Source ) 
 colnames(DailyWordCounts) 
 
 ## join list of words counts per day with list of total number of words per day, and calculate frequency per million, then rename columns
-MyWordlist <- full_join(MyWordlist, CurrentDayStats, by = c("YYYY", "MM", "DD", "Section")) %>% 
+MyWordlist <- full_join(MyWordlist, CurrentDayStats, by = c("YYYY", "MM", "DD", "Source")) %>% 
   mutate(Freq = n.x/n.y * 1000000)
 names(MyWordlist)[6] <- "n" ; names(MyWordlist)[7] <- "Size" ; 
 # create new vaiable with contents of MyWordList
@@ -75,16 +74,16 @@ head(CurrentDailyFreqList)
 ## Get count of words per MONTH for this corpus
 MonthlyWordCounts <- corpus_docs %>% 
   unnest_tokens(word, text) %>% 
-  count(YYYY, MM, Section) 
+  count(YYYY, MM, Source) 
 CurrentMonthStats <- rbind(MonthlyWordCounts)
 head(CurrentMonthStats)
-## get individual word counts per day
+## get individual word counts per month
 MyWordlist <- corpus_docs %>%
   unnest_tokens(word, text) %>% 
-  count(word, YYYY, MM, Section) 
+  count(word, YYYY, MM, Source) 
 
 # join list of word counts per month with total number of words per month, and calculate frequency per million, then rename columns
-MyWordlist <- left_join(MyWordlist, MonthlyWordCounts, by = c("YYYY", "MM", "Section")) %>% 
+MyWordlist <- left_join(MyWordlist, MonthlyWordCounts, by = c("YYYY", "MM", "Source")) %>% 
   mutate(Freq = n.x/n.y * 1000000)
 names(MyWordlist)[5] <- "n" ; names(MyWordlist)[6] <- "Size" ; 
 CurrentMonthlyFreqList <- rbind(MyWordlist)
@@ -93,18 +92,19 @@ head(MyWordlist)
 ## Get count of words per YEAR for this corpus
 YearlyWordCounts <- corpus_docs %>% 
   unnest_tokens(word, text) %>% 
-  count(YYYY, Section) 
+  count(YYYY, Source) 
 CurrentYearlyStats <- rbind( YearlyWordCounts)
 head(CurrentYearlyStats)
 ## get individual word counts per day
 MyWordlist <- corpus_docs %>%
   unnest_tokens(word, text) %>% 
-  count(word, YYYY, Section) 
+  count(word, YYYY, Source) 
 # join list of word counts per month with total number of words per year, and calculate frequency per million, then rename columns
-MyWordlist <- left_join(MyWordlist, YearlyWordCounts, by = c("YYYY", "Section")) %>% 
+MyWordlist <- left_join(MyWordlist, YearlyWordCounts, by = c("YYYY", "Source")) %>% 
   mutate(Freq = n.x/n.y * 1000000)
 names(MyWordlist)[4] <- "n" ; names(MyWordlist)[5] <- "Size" ; 
 CurrentYearlyFreqList <- rbind( MyWordlist)
+
 head(CurrentYearlyFreqList)
 print(paste("COMPLETED ", thisYear, sep = ""))
 beep(1)
@@ -119,9 +119,9 @@ write.csv(CurrentMonthStats, paste("/Users/me/", "myCorpus", "monthStats.csv", s
 write.csv(CurrentYearlyStats, paste("/Users/me/", "myCorpus", "yearstats.csv", sep = ""))
 print("Exported !!!")
 
-## combine results to get sums according to section in which words appear
-allSectionList <- CurrentYearlyStats %>% 
-  group_by(Section) %>% 
+## combine results to get sums according to Source in which words appear
+allSourceList <- CurrentYearlyStats %>% 
+  group_by(Source) %>% 
   summarise(n=sum(n))
 
 
@@ -141,37 +141,41 @@ print("DONE !!!")
 TIONstoplist <- as.data.frame(read_lines("/Users/me/Desktop/TIONStoplist.txt")) # import stoplist as df
 names(TIONstoplist)[1] <- "word" # set name of column 1/variable 1
 TIONwordsDaily <- dplyr::filter(CurrentDailyFreqList, grepl(".*tion($|s$)",word)) # filter the daily list of words for words that end in TION or TIONS (suppose we want to catch any plurals…). This gives us a list of words ending in TION or TIONS
+names(TIONwordsDaily)[6] <- "n"; names(TIONwordsDaily)[7] <- "Size"; 
 TIONwordsDailyStopped <- anti_join(TIONwordsDaily, TIONstoplist, by = "word") # then remove any of these words that are in our stoplist
 
 aberration  <- dplyr::filter(CurrentDailyFreqList, grepl("aberration($|s$)",word)) %>%  # gets result for aberrations/aberrations
-   arrange(YYYY, MM, DD) 
+  arrange(YYYY, MM, DD) 
 
-abberration  <- dplyr::filter(CurrentDailyFreqList, grepl("abberration($|s$)",word)) %>%  # gets results for abberrations/abberration
-   arrange(YYYY, MM, DD) 
+action  <- dplyr::filter(CurrentDailyFreqList, grepl("^action($|s$)",word)) %>%  # gets results for abberrations/abberration
+  arrange(YYYY, MM, DD) 
 
 
+# plot some quick-and-nasty graphs of these specific results to get top-line overview of relevant data
 ggplot(aberration, aes(x = (ymd(paste(YYYY, MM, DD, sep ="-"))), y = Freq)) + geom_point(shape = 18, size = 5, color = "blue") + labs(y="Freq /M", x ="Year")+ theme_bw() + geom_line(linetype = 1, size=1, color = "red") + ggtitle(paste0("Use of " , "aberration",sep="")) 
-
-ggplot(flux, aes(x = (ymd(paste(YYYY, MM, DD, sep ="-"))), y = Freq)) + geom_point(shape = 18, size = 5, color = "blue") + labs(y="Freq /M", x ="Year")+ theme_bw() + geom_line(linetype = 1, size=1, color = "green") + ggtitle(paste0("Use of " , "abberration",sep="")) 
- # plot some quick graphs of these specific results
+ggplot(action, aes(x = (ymd(paste(YYYY, MM, DD, sep ="-"))), y = Freq)) + geom_point(shape = 18, size = 5, color = "blue") + labs(y="Freq /M", x ="Year")+ theme_bw() + geom_line(linetype = 1, size=1, color = "green") + ggtitle(paste0("Use of " , "action",sep="")) 
 
 
 
-## get data  on all TION occurrences per day with minimum freq value
 
-TIONwordsDailyStoppedA <- unique.data.frame(TIONwordsDailyStopped[c(1)]) # get list of unique stopwords (best to check, as manually managed stoplists can easily contain double-ups…)
+## get data  on all TION occurrences per day 
+    #with minimum freq value
+# TIONwordsDailyStoppedA <- (TIONwordsDailyStopped) # get  unique df (best to check, as manually managed stoplists can easily contain double-ups…)
 TIONwordsDailyStoppedA <- TIONwordsDailyStopped %>%  # create a new variable to hold results with more than a given number, 5, of results
-   count(word) %>% 
-  filter(n > 5)
-mutate(RelFreq = n/Size *1000000)
+  filter(n > 5) %>% 
+  count(YYYY, MM, DD, Source, Size) %>% 
+  mutate(RelFreq = n/Size *1000000)  
 
+# same as above, but with in-line restriction of value of n = number of results
+DailyTIONTotalsRestricted <- TIONwordsDailyStopped[which(TIONwordsDailyStopped$n >1),] %>%  
+  count(YYYY, MM, DD, Size) %>% 
+  mutate(RelFreq = n/Size *1000000)
+
+## with all occurrences
 DailyTIONtotals <- TIONwordsDaily %>% # get sum of occurrences of TION words per day, and calculate relative freq
-  count(YYYY, MM, DD, Size) %>% 
+  count(YYYY, MM, DD, Size, Source) %>% 
   mutate(RelFreq = n/Size *1000000)
 
-DailyTIONTotalsRestricted <- TIONwordsDaily[which(TIONwordsDaily$n >1),] %>%  # same as above, but with in-line restriction of value of n = number of results
-  count(YYYY, MM, DD, Size) %>% 
-  mutate(RelFreq = n/Size *1000000)
 
 
 Graph at daily level
@@ -190,10 +194,10 @@ graph1 <- ggplot()+
   geom_line(data = DailyTIONtotals,   
             aes(x = (ymd(paste(YYYY, MM, DD, sep ="-"))), y = (rollmean(RelFreq, 7, fill = NA, align = c("center")))), color = "green", linetype = 1, size =1.5, alpha = 0.5) + 
   geom_line(linetype = 1, size=1) + 
-  scale_x_date(expand = c(0,0), date_breaks = "years" , date_labels = "%Y"  ) + ## force x axis  start at origin (regardless of year), breaks = YY;  4 digit year (Y), cf (y) = 2 digit)
-  scale_y_continuous(expand = c(0,0), limits =c(0, 1800), breaks = seq(0, 1800, 200)) + ## add breaks at specified intervals (from 0 to 0.6, at steps of 0.1)
+  scale_x_date(expand = c(0,0), date_breaks = "1 week" , date_labels = "%D"  ) + ## force x axis  start at origin (regardless of year), breaks = YY;  4 digit year (Y), cf (y) = 2 digit)
+  scale_y_continuous(expand = c(0,0), limits =c(0, 8000), breaks = seq(0, 8000, 1000)) + ## add breaks at specified intervals (from 0 to 0.6, at steps of 0.1)
   labs(y="Freq /M", x ="Year") +
-  ggtitle((paste0("Relative Frequency of -TION forms : ", thisPublication,  sep=""))) +
+  ggtitle((paste0("Relative Frequency of -TION forms : ",  sep=""))) +
   theme(plot.title = element_text(hjust = 0.5)) +
   theme(plot.title = element_text(color = "limegreen")) +
   theme(plot.title = element_text(size = 20, face = "bold"))+
@@ -204,15 +208,17 @@ graph1 <- ggplot()+
             legend.box.just = "right",
             legend.margin = margin(6, 6, 6, 6))+
   labs(title =, tag = "A")
+# we can see that about half the TION words on a given day are hapaxes, both at the level of individual days, as well as the 7 day rolling average
+# and as for the title, it's in green to make it stick out so you remember to change it to something more meaningful, but do change the colour too when you're finished defining everything…
 
 ggsave( paste("/Users/me//TIONforms-DAY.pdf", sep=""), plot = graph1, dpi = 320, width = 40, height = 16, units =c("cm"))
 ## print output as pdf to specified path, with dpi, width and height settings
 
-# this section repeats the above, analysing at the level of MONTHS; these lines are thus uncommented
+# this Source repeats the above, analysing at the level of MONTHS; these lines are thus uncommented
 ## get data  on all TION occurrences per month
 
-
 TIONwordsMonthly <- dplyr::filter(CurrentMonthlyFreqList, grepl(".*tion($|s$)",word))
+names(TIONwordsMonthly)[5] <- "n"; names(TIONwordsMonthly)[6] <- "Size"; 
 TIONwordsDailyStopped <- anti_join(TIONwordsMonthly, TIONstoplist, by = "word")
 
 MonthlyTIONtotals <- TIONwordsMonthly %>% 
@@ -223,24 +229,21 @@ MonthlyTIONtotalsRestricted <- TIONwordsMonthly[which(TIONwordsMonthly$n >1),] %
   count(YYYY, MM, Size) %>% 
   mutate(RelFreq = n/Size *1000000)
 
-
-
 #Graph at monthly level
-
 graph2 <- ggplot()+
   geom_line(data = MonthlyTIONtotals, 
-            aes(x = (ym(paste(YYYY, MM, sep ="-"))), y = RelFreq), color = "red", linetype = 1, size =1, alpha = 0.5) + 
+            aes(x = (lubridate::ym(paste(YYYY, MM, sep ="-"))), y = RelFreq), color = "red", linetype = 1, size =1, alpha = 0.5) + 
   geom_line(data = MonthlyTIONtotals,   
-            aes(x = (ym(paste(YYYY, MM, sep ="-"))), y = (rollmean(RelFreq, 7, fill = NA, align = c("center")))), color = "blue", linetype = 1, size =1.5, alpha = 0.5) + 
+            aes(x = (lubridate::ym(paste(YYYY, MM, sep ="-"))), y = (rollmean(RelFreq, 7, fill = NA, align = c("center")))), color = "blue", linetype = 1, size =1.5, alpha = 0.5) + 
   geom_line(data = MonthlyTIONtotalsRestricted,   
-            aes(x = (ym(paste(YYYY, MM, sep ="-"))), y = RelFreq), color = "steelblue", linetype = 1, size =1, alpha = 0.5) + 
+            aes(x = (lubridate::ym(paste(YYYY, MM, sep ="-"))), y = RelFreq), color = "steelblue", linetype = 1, size =1, alpha = 0.5) + 
   geom_line(data = MonthlyTIONtotalsRestricted,   
-            aes(x = (ym(paste(YYYY, MM, sep ="-"))), y = (rollmean(RelFreq, 7, fill = NA, align = c("center")))), color = "green", linetype = 1, size =1.5, alpha = 0.5) + 
-  geom_line(linetype = 1, size=1) + 
-  scale_x_date(expand = c(0,0), date_breaks = "years" , date_labels = "%Y"  ) + ## force x axis  start at origin (regardless of year), breaks = YY;  4 digit year (Y), cf (y) = 2 digit)
-  scale_y_continuous(expand = c(0,0), limits =c(0, 500), breaks = seq(0, 500, 50)) + ## add breaks at specified intervals (from 0 to 0.6, at steps of 0.1)
+            aes(x = (lubridate::ym(paste(YYYY, MM, sep ="-"))), y = (?rollmean(RelFreq, 7, fill = NA, align = c("center")))), color = "green", linetype = 1, size =1.5, alpha = 0.5) + 
+   geom_line(linetype = 1, size=1) + 
+  scale_x_date(expand = c(0,0), date_breaks = "months" , date_labels = "%Y-%m"  ) + ## force x axis  start at origin (regardless of year), breaks = YY;  4 digit year (Y), cf (y) = 2 digit)
+  scale_y_continuous(expand = c(0,0), limits =c(0, 4000), breaks = seq(0, 4000, 500)) + ## add breaks at specified intervals (from 0 to 0.6, at steps of 0.1)
   labs(y="Freq /M", x ="Year") +
-  ggtitle((paste0("Relative Freq. of  -TION forms : ", thisPublication,  " : MONTHS", sep=""))) +
+  ggtitle((paste0("Relative Freq. of  -TION forms : ",  " : MONTHS", sep=""))) +
   theme(plot.title = element_text(hjust = 0.5)) +
   theme(plot.title = element_text(color = "limegreen")) +
   theme(plot.title = element_text(size = 20, face = "bold"))+
@@ -255,7 +258,7 @@ graph2 <- ggplot()+
 
 ggsave( paste("/Users/me/TIONforme-MOIS.pdf", sep=""), plot = graph2, dpi = 320, width = 40, height = 16, units =c("cm"))
 
-## this section repeats the above, analysing at the level of YEARS ; these lines are uncommented
+## this Source repeats the above, analysing at the level of YEARS ; these lines are uncommented
 ## get data  on all TION occurrences per year
 
 TIONwordsYearly <- dplyr::filter(CurrentYearlyFreqList, grepl(".*tion($|s$)",word))
@@ -279,27 +282,27 @@ YearlyTIONtotalsRestricted <- YearlyTIONtotalsRestricted %>%
 
 graph3 <- ggplot()+
   geom_point(data = YearlyTIONtotals,
-    aes(x = ((paste(YYYY,  sep ="-"))), y = RelFreq), color = "red", shape = 4, size =1, alpha = 0.5) +
+             aes(x = ((paste(YYYY,  sep ="-"))), y = RelFreq), color = "red", shape = 4, size =1, alpha = 0.5) +
   geom_point(data = YearlyTIONtotals,
-      aes(x = ((paste(YYYY,  sep ="-"))), y = (rollmean(RelFreq, 7, fill = NA, align = c("center")))), color = "blue", shape = 4, size =1.5, alpha = 0.5) +
+             aes(x = ((paste(YYYY,  sep ="-"))), y = (rollmean(RelFreq, 7, fill = NA, align = c("center")))), color = "blue", shape = 4, size =1.5, alpha = 0.5) +
   geom_point(data = YearlyTIONtotalsRestricted,
-      aes(x = ((paste(YYYY, sep ="-"))), y = RelFreq), color = "steelblue",shape = 4, size =1, alpha = 0.5) +
-    geom_point(data = YearlyTIONtotalsRestricted,
-      aes(x = ((paste(YYYY, sep ="-"))), y = (rollmean(RelFreq, 7, fill = NA, align = c("center")))), color = "green", shape = 4, size =1.5, alpha = 0.5) +
- scale_x_continuous(expand = c(0,0)) + ## force x axis  start at origin (regardless of year), breaks = YY;  4 digit year (Y), cf (y) = 2 digit)
-scale_y_continuous(expand = c(0,0), limits =c(0, 700), breaks = seq(0, 700, 100)) + ## add breaks at specified intervals (from 0 to 0.6, at steps of 0.1)
-    labs(y="Freq /M", x ="Year") +
+             aes(x = ((paste(YYYY, sep ="-"))), y = RelFreq), color = "steelblue",shape = 4, size =1, alpha = 0.5) +
+  geom_point(data = YearlyTIONtotalsRestricted,
+             aes(x = ((paste(YYYY, sep ="-"))), y = (rollmean(RelFreq, 7, fill = NA, align = c("center")))), color = "green", shape = 4, size =1.5, alpha = 0.5) +
+  scale_x_continuous(expand = c(0,0)) + ## force x axis  start at origin (regardless of year), breaks = YY;  4 digit year (Y), cf (y) = 2 digit)
+  scale_y_continuous(expand = c(0,0), limits =c(0, 700), breaks = seq(0, 700, 100)) + ## add breaks at specified intervals (from 0 to 0.6, at steps of 0.1)
+  labs(y="Freq /M", x ="Year") +
   ggtitle((paste0("FRelative Frequency of TION forms : YEAR", sep=""))) +
   theme(plot.title = element_text(hjust = 0.5)) +
   theme(plot.title = element_text(color = "limegreen")) +
   theme(plot.title = element_text(size = 20, face = "bold"))+
-theme(legend.position = 'bottom') +
-
+  theme(legend.position = 'bottom') +
+  
   theme(    legend.position = c(.95, .95),
-   legend.justification = c("right", "top"),
-    legend.box.just = "right",
-    legend.margin = margin(6, 6, 6, 6))+
-    labs(title =, tag = "C")
+            legend.justification = c("right", "top"),
+            legend.box.just = "right",
+            legend.margin = margin(6, 6, 6, 6))+
+  labs(title =, tag = "C")
 
 ## save graph
 ggsave( paste("/Users/me/TIONforms-ANNEE.pdf", sep=""), plot = graph3, dpi = 320, width = 40, height = 16, units =c("cm"))
@@ -386,7 +389,7 @@ monthlyData[which(monthlyData$YYYY==2007 & monthlyData$MM == 03),]
 
 ## graph to compare A to B… with total freq of TION forms for all sources
 
-  graph4 <-   ggplot(DailyData, aes(x = (ymd(paste(YYYY, MM, DD, sep ="-"))), y = FreqRel, colour = Source)) +
+graph4 <-   ggplot(DailyData, aes(x = (ymd(paste(YYYY, MM, DD, sep ="-"))), y = FreqRel, colour = Source)) +
   geom_line(size =0.75, alpha = .5) +
   #    scale_color_manual(values = c("limegreen", "steelblue")) +
   geom_point(size = 0.3, shape = 4) +
@@ -429,7 +432,7 @@ monthlyData <- AllStoppedTION %>%
 monthlyData[which(monthlyData$YYYY==2007 & monthlyData$MM == 03),]
 
 
-  graph22 <-   ggplot(monthlyData, aes(x = (ym(paste(YYYY, MM,  sep ="-"))), y = FreqRel, colour = Source)) +
+graph22 <-   ggplot(monthlyData, aes(x = (ym(paste(YYYY, MM,  sep ="-"))), y = FreqRel, colour = Source)) +
   geom_line(size =1.5, alpha = 1) +
   #    scale_color_manual(values = c("limegreen", "steelblue")) +
   geom_point(size = 3, shape = 4) +
