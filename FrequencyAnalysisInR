@@ -16,7 +16,6 @@ library(rjson) ; library(jsonlite) ; library(tibble) ; library(beepr); library(t
 ## If already have generated and saved files externally, go down to loading section
 ## Generate frequency data from corpus
 
-
 ## get corpus files, generate wordlists, stats…
 corpus_docs <- tidy((VCorpus(DirSource(paste("/Volumes/Rikiki/myCorpus/txt", sep=""), encoding="UTF-8"))), collapse = "\n")
 
