@@ -1,4 +1,4 @@
-## The following is a collection of R scripts that can be used to take concordance lines/KWICs and, with appropriate corpus data files, carry out further analysis of the corpus with R
+## The following is a collection of R scripts chunks that can be used to take concordance lines/KWICs and, with appropriate corpus data files, carry out further analysis of the corpus with R
 
 ## Part 1: This part involves getting the corpus files and determining which words appear at which frequency in the corpus documents. This lets us carry out frequency calculations later, and also choose the level of granularity of these calculations.
 ## create empty dfs where we can store data
