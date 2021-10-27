@@ -5,7 +5,7 @@ library(tidytext) ; library(stringr) ; library(hrbrthemes) ;library(tidyverse); 
 
 ### read in corpus files at day level, as this has ID = day name. This can be skipped if you already have generated these data from in another script
 ## result is a df, with 3 columns, for words, ids, and counts
-WholeCorpus <- tidy(VCorpus(DirSource('/Volumes/disk1/myCorpus/txt/')), collapse = "\n") %>%
+WholeCorpus <- tidy(VCorpus(DirSource('/Volumes/Rikiki/myCorpus/txt/')), collapse = "\n") %>%
   unnest_tokens(word, text) %>% 
   count(id, word, sort = TRUE) 
 
@@ -272,4 +272,3 @@ Graph2 <-   ggplot(Graph2Data, aes(x = (ymd(paste(YYYY, MM, DD, sep ="-"))), y =
 # export graph
 
 ggsave( "/Users/me/RelFreqTIONforms-DAY.jpg", plot = Graph2, dpi = 320, width = 40, height = 16, units =c("cm"))
-
